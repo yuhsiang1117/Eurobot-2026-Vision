@@ -6,6 +6,9 @@ This repository contains the vision system for the Eurobot 2026 competition.
 cd docker/
 docker compose up -d
 ```
+> Change the `module/install_realsense.sh` Windows Line Endings CRLF -> LF inside VScode if you failed building on 
+> `RUN --mount=type=cache,target=/var/cache/apt,sharing=private \ /tmp/install_realsense.sh && rm /tmp/install_realsense.sh
+` step
 ### Build workspace
 Attach to the running container:
 ```bash
