@@ -34,3 +34,13 @@ Open RViz to visualize camera images and TF frames:
 ```bash
 ros2 run rviz2 rviz2
 ```
+
+### generate aruco code
+可以生到pdf檔generate_aruco_pdf_scalable.py
+```
+python3 generate_aruco_pdf_scalable.py --ids 20 21 22 23
+```
+可以試試其他參數
+```
+python3 generate_aruco_pdf_scalable.py --id-range 10 14 --output aruco.pdf --size 5 --spacing 1
+```

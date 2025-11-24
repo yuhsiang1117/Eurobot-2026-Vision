@@ -132,6 +132,8 @@ private:
         }
 
         // --- 反轉為 camera_optical→world ---
+        // R_cm: world to camera 轉換
+        // R_mc: camera 在 world 的位置轉換
         cv::Mat R_cm;
         cv::Rodrigues(rvec, R_cm);
         cv::Mat R_mc = R_cm.t();
