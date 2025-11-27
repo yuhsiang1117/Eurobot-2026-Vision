@@ -19,7 +19,6 @@ include_directories(
 )
 
 add_executable(aruco_detector_node src/aruco_detector_node.cpp)
-
 ament_target_dependencies(aruco_detector_node
   rclcpp
   sensor_msgs
@@ -30,12 +29,35 @@ ament_target_dependencies(aruco_detector_node
   geometry_msgs
 )
 
-target_link_libraries(aruco_detector_node
+add_executable(robot_detector_node src/robot_detector_node.cpp)
+ament_target_dependencies(robot_detector_node
+  rclcpp
+  sensor_msgs
+  cv_bridge
+  tf2_ros
+  tf2_geometry_msgs
+  tf2_eigen
+  geometry_msgs
+)
+
+target_link_libraries(
+  aruco_detector_node
+  ${OpenCV_LIBRARIES}
+)
+
+target_link_libraries(
+  robot_detector_node
   ${OpenCV_LIBRARIES}
 )
 
 install(TARGETS
   aruco_detector_node
+  robot_detector_node
   DESTINATION lib/${PROJECT_NAME})
+
+install(DIRECTORY
+  launch
+  DESTINATION share/${PROJECT_NAME}
+)
 
 ament_package()
