@@ -34,6 +34,8 @@ public:
             "/camera/camera/color/image_raw", 10,
             std::bind(&ArucoDetectorNode::image_callback, this, _1));
 
+        image_pub_ = this->create_publisher<sensor_msgs::msg::Image>("aruco_result_image", 10);
+
         tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(this);
         tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
         tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
@@ -44,19 +46,23 @@ public:
         detector_params_->cornerRefinementWinSize = 5;
         detector_params_->cornerRefinementMaxIterations = 30;
         detector_params_->cornerRefinementMinAccuracy = 0.1;
-        detector_params_->adaptiveThreshWinSizeMin = 3;
-        detector_params_->adaptiveThreshWinSizeMax = 23;
+        detector_params_->adaptiveThreshWinSizeMin = 7;
+        detector_params_->adaptiveThreshWinSizeMax = 47;
         detector_params_->adaptiveThreshWinSizeStep = 10;
         detector_params_->minCornerDistanceRate = 0.05;
         detector_params_->minMarkerDistanceRate = 0.05;
 
-
-
         camera_matrix_ = (cv::Mat1d(3, 3) <<
-            605.9448852539062, 0.0, 314.1728515625,
-            0.0, 605.9448852539062, 247.0227813720703,
-            0.0, 0.0, 1.0);
-        dist_coeffs_ = cv::Mat::zeros(1, 5, CV_64F);
+        916.026611328125, 0.0,       653.2020263671875,
+        0.0,       913.7075805664062, 366.0958251953125,
+        0.0,       0.0,       1.0);
+        dist_coeffs_ = (cv::Mat1d(1, 5) << 0.124547, -0.188246, -0.006140, 0.001525, 0.000000); //0.124547, -0.188246, -0.006140, 0.001525, 0.000000
+
+        rvec_ = cv::Mat::zeros(3, 1, CV_64F);
+        tvec_ = cv::Mat::zeros(3, 1, CV_64F);
+        filtered_rvec_ = cv::Mat::zeros(3, 1, CV_64F);
+        filtered_tvec_ = cv::Mat::zeros(3, 1, CV_64F);
+        have_prev_pose_ = false;
 
         RCLCPP_INFO(this->get_logger(), "Aruco solvePnPRansac version started.");
     }
@@ -73,13 +79,14 @@ private:
         }
 
         cv::Mat frame = cv_ptr->image;
+        cv::Mat blurred_frame;
+        cv::GaussianBlur(frame, blurred_frame, cv::Size(5, 5), 0);
         std::vector<int> ids;
         std::vector<std::vector<cv::Point2f>> corners, rejected;
 
-        cv::aruco::detectMarkers(frame, dictionary_, corners, ids, detector_params_, rejected);
+        cv::aruco::detectMarkers(blurred_frame, dictionary_, corners, ids, detector_params_, rejected);
         if (ids.empty()) {
-            cv::imshow("Aruco Detection", frame);
-            cv::waitKey(1);
+            publish_debug_image(frame, msg->header); // 發布原圖
             return;
         }
 
@@ -112,30 +119,58 @@ private:
 
         if (objectPoints.size() < 4) {
             RCLCPP_WARN(this->get_logger(), "Not enough corner points for PnP (%zu).", objectPoints.size());
-            cv::imshow("Aruco Detection", frame);
-            cv::waitKey(1);
+            publish_debug_image(frame, msg->header);
             return;
+        }
+
+        int pnp_method = cv::SOLVEPNP_ITERATIVE; // 預設：多標記用迭代法
+
+        if (objectPoints.size() == 4) {
+            pnp_method = cv::SOLVEPNP_IPPE_SQUARE;
         }
 
         // --- SolvePnPRansac 求解 world→camera_color_optical ---
-        cv::Vec3d rvec, tvec;
+        cv::Mat curr_rvec = rvec_.clone();
+        cv::Mat curr_tvec = tvec_.clone();
+        bool use_guess = have_prev_pose_;
         std::vector<int> inliers;
-        bool ok = cv::solvePnPRansac(
+
+        bool ok = cv::solvePnP(
             objectPoints, imagePoints,
             camera_matrix_, dist_coeffs_,
-            rvec, tvec, false,
-            200, 3.0, 0.99, inliers, cv::SOLVEPNP_EPNP);
+            curr_rvec, curr_tvec, use_guess,
+            pnp_method);
 
-        if (!ok) {
+        if (!ok ) {//|| inliers.size() < 4
             RCLCPP_WARN(this->get_logger(), "PnP failed.");
+            publish_debug_image(frame, msg->header);
             return;
         }
 
+        if (!have_prev_pose_) {
+            filtered_rvec_ = curr_rvec.clone();
+            filtered_tvec_ = curr_tvec.clone();
+        } else {
+            // alpha: 0.2~0.3 會非常平滑，類似 pytagmapper 的效果
+            double alpha = 0.2; 
+            filtered_tvec_ = alpha * curr_tvec + (1.0 - alpha) * filtered_tvec_;
+            filtered_rvec_ = alpha * curr_rvec + (1.0 - alpha) * filtered_rvec_;
+        }
+        rvec_ = filtered_rvec_.clone();
+        tvec_ = filtered_tvec_.clone();
+        have_prev_pose_ = true;
+
+        for (const auto& pt : imagePoints) {
+            cv::circle(frame, pt, 4, cv::Scalar(0, 255, 0), -1); 
+        }
+        std::string info = "Optimization Points: " + std::to_string(objectPoints.size());
+        cv::putText(frame, info, cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 0), 2);
+
         // --- 反轉為 camera_optical→world ---
         cv::Mat R_cm;
-        cv::Rodrigues(rvec, R_cm);
+        cv::Rodrigues(rvec_, R_cm);
         cv::Mat R_mc = R_cm.t();
-        cv::Mat t_mc = -R_mc * cv::Mat(tvec);
+        cv::Mat t_mc = -R_mc * cv::Mat(tvec_);
 
         // --- 取 camera_link→camera_color_optical_frame 變換 ---
         tf2::Transform T_clink_copt;
@@ -168,13 +203,26 @@ private:
         out.transform = tf2::toMsg(T_w_clink);
         tf_broadcaster_->sendTransform(out);
 
-        RCLCPP_INFO(this->get_logger(), "Published world->camera_link (PnP inliers=%zu)", inliers.size());
+        RCLCPP_INFO(this->get_logger(), "Published (Negotiated). Points: %zu", objectPoints.size());
 
-        cv::imshow("Aruco Detection", frame);
-        cv::waitKey(1);
+        publish_debug_image(frame, msg->header);
+    }
+
+    void publish_debug_image(const cv::Mat& img, const std_msgs::msg::Header& header)
+    {
+        // 轉換 cv::Mat -> sensor_msgs::msg::Image
+        sensor_msgs::msg::Image::SharedPtr out_msg;
+        try {
+            // 使用原始 msg 的 header，保持時間戳同步
+            out_msg = cv_bridge::CvImage(header, "bgr8", img).toImageMsg();
+            image_pub_->publish(*out_msg);
+        } catch (cv_bridge::Exception& e) {
+            RCLCPP_ERROR(this->get_logger(), "Failed to convert image: %s", e.what());
+        }
     }
 
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subscription_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_pub_;
     std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
@@ -182,6 +230,10 @@ private:
     cv::Ptr<cv::aruco::Dictionary> dictionary_;
     cv::Ptr<cv::aruco::DetectorParameters> detector_params_;
     cv::Mat camera_matrix_, dist_coeffs_;
+
+    cv::Mat rvec_, tvec_;
+    cv::Mat filtered_rvec_, filtered_tvec_;
+    bool have_prev_pose_;
 };
 
 int main(int argc, char **argv)
