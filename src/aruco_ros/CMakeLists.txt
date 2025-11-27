@@ -19,6 +19,7 @@ include_directories(
 )
 
 add_executable(aruco_detector_node src/aruco_detector_node.cpp)
+add_executable(camera_calibrator_node src/calibrate_camera.cpp)
 
 ament_target_dependencies(aruco_detector_node
   rclcpp
@@ -30,12 +31,24 @@ ament_target_dependencies(aruco_detector_node
   geometry_msgs
 )
 
+ament_target_dependencies(camera_calibrator_node
+  rclcpp
+  sensor_msgs
+  cv_bridge
+  ament_index_cpp
+)
+
 target_link_libraries(aruco_detector_node
+  ${OpenCV_LIBRARIES}
+)
+
+target_link_libraries(camera_calibrator_node
   ${OpenCV_LIBRARIES}
 )
 
 install(TARGETS
   aruco_detector_node
+  camera_calibrator_node
   DESTINATION lib/${PROJECT_NAME})
 
 ament_package()

@@ -10,7 +10,7 @@
 #include <tf2/LinearMath/Transform.h>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 
-const double MARKER_LENGTH = 0.1; // meter
+const double MARKER_LENGTH = 0.065; // meter
 
 // 世界中每個 marker 的中心位置 (X,Y,Z)
 struct MarkerInfo {
