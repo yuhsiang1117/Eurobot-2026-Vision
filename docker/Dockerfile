@@ -1,12 +1,13 @@
 FROM ros:humble AS base
 
-# 1. Install Node.js v20 (Required for Gemini)
+ARG USERNAME=vision
+ARG USER_UID=1000
+
+# Install Node.js v20 and geminiCLI
 RUN apt-get update && apt-get install -y curl gnupg && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y nodejs
-
-# 2. Install Gemini CLI Globaly
-RUN npm install -g @google/gemini-cli
+    apt-get install -y nodejs && \
+    npm install -g @google/gemini-cli
 
 # Keep apt cache to speed up subsequent builds
 RUN rm -f /etc/apt/apt.conf.d/docker-clean; echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
@@ -46,25 +47,45 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=private \
         ros-humble-rviz2 \
         ros-humble-tf2-geometry-msgs \
         ros-humble-tf2-eigen \
+        ros-humble-realsense2-camera \
+        ros-humble-rtabmap-ros \
+        ros-humble-rplidar-ros \
+        ros-humble-tf2-tools \
+        ros-humble-rmw-cyclonedds-cpp \
     && rm -rf /var/lib/apt/lists/*
-
-ARG USERNAME=vision
-ARG USER_UID=1000
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=private \
     apt-get update && apt-get install -y sudo \
-    && useradd -m -s /bin/bash -u $USER_UID -G sudo $USERNAME \
+    && useradd -m -s /bin/bash -u $USER_UID -G sudo,video $USERNAME \
     && echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers \
     && rm -rf /var/lib/apt/lists/*
 
-USER $USERNAME
+# 1. Install RTAB-Map and GUI dependencies
+# mesa-utils is helpful for debugging graphic issues (glxgears)
+RUN apt-get update && apt-get install -y \
+    ros-humble-rtabmap-ros \
+    mesa-utils \
+    libgl1-mesa-glx \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+# Install Cyclone DDS implementation
+RUN apt-get update && apt-get install -y \
+    ros-humble-rmw-cyclonedds-cpp \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --chown=$USERNAME:$USERNAME \
      modules/install_realsense.sh /tmp/install_realsense.sh
 RUN --mount=type=cache,target=/var/cache/apt,sharing=private \
     /tmp/install_realsense.sh && rm /tmp/install_realsense.sh
 
+# Configure ROS 2 Logging
+ENV RCUTILS_LOGGING_USE_STDOUT=1
+ENV RCUTILS_LOGGING_BUFFERED_STREAM=1
+ENV RCUTILS_COLORIZED_OUTPUT=1
+# Set it as the default middleware
+ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
 ENTRYPOINT []
+USER $USERNAME
+RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
 CMD ["/bin/bash"]
