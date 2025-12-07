@@ -1,41 +1,26 @@
-# my_robot_slam
-
-This package provides the necessary launch files and configurations for Simultaneous Localization and Mapping (SLAM) using RTAB-MAP on ROS 2 Humble with an Intel RealSense D435 camera and a 2D Lidar.
-
-## 1. System Dependencies
-
-The following packages must be installed on your host system:
-
-```bash
-sudo apt update
-sudo apt install -y ros-humble-realsense2-camera \
-                    ros-humble-rtabmap-ros \
-                    ros-humble-rplidar-ros \
-                    ros-humble-tf2-tools \
-                    ros-humble-rmw-cyclonedds-cpp # Recommended for high bandwidth
+# Run examples in `rtabmap_examples` package
+Step 1: Launch the Camera (Infra Mode) Run this in your first terminal. We turn off the emitter (laser dots) because they confuse the visual odometry algorithm.
 ```
-
-## 2. Build Instructions
-
-Navigate to your workspace root and build the `my_robot_slam` package:
-
-```bash
-cd ~/vision_ws
-colcon build --symlink-install --packages-select my_robot_slam
-source install/setup.bash
+ros2 launch realsense2_camera rs_launch.py \
+    enable_infra1:=true \
+    enable_infra2:=true \
+    enable_color:=false \
+    depth_module.emitter_enabled:=0 \
+    enable_sync:=true
 ```
+Step 2: Launch RTAB-Map + RViz Run this in your second terminal.
 
-## 3. Run Instructions
+* rgb_topic: We trick RTAB-Map into using the Infrared image as if it were the "RGB" image.
 
-After building and sourcing your workspace, launch the mapping pipeline:
-
-```bash
-ros2 launch my_robot_slam mapping_launch.py
+* rviz:=true: This answers your second question—it automatically opens the visualization window.
 ```
-
-## 4. Troubleshooting Checklist
-
-*   **Check TF Tree:** Run `ros2 run tf2_tools view_frames`. Requirement: Must see `map -> odom -> base_link -> camera_link`/`lidar_link`. Note: If `odom -> base_link` is missing, ensure the robot chassis driver is running.
-*   **Check Topics:** Run `ros2 topic list`. Requirement: Ensure `/camera/camera/aligned_depth_to_color/image_raw` and `/scan` exist and are publishing data.
-
+ros2 launch rtabmap_launch rtabmap.launch.py \
+    rtabmap_args:="--delete_db_on_start" \
+    rgb_topic:=/camera/camera/infra1/image_rect_raw \
+    camera_info_topic:=/camera/camera/infra1/camera_info \
+    depth_topic:=/camera/camera/depth/image_rect_raw \
+    frame_id:=camera_link \
+    approx_sync:=false \
+    wait_imu_to_init:=false \
+    rviz:=true
 ```

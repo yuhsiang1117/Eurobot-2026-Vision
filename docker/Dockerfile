@@ -52,6 +52,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=private \
         ros-humble-rplidar-ros \
         ros-humble-tf2-tools \
         ros-humble-rmw-cyclonedds-cpp \
+        ros-humble-rqt-image-view \
+        ros-humble-rqt-common-plugins \
     && rm -rf /var/lib/apt/lists/*
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=private \
